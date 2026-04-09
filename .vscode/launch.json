@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File (ates-app)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}/ates-app",
+            "python": "${workspaceFolder}/ates-app/.venv/bin/python",
+            "console": "integratedTerminal"
+        }
+    ]
+}
