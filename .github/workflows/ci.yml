@@ -11,4 +11,4 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --group dev
-      - run: uv run pytest --cov=ates --cov-report=term-missing
+      - run: uv run pytest
