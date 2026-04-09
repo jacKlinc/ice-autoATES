@@ -11,6 +11,7 @@ from rasterio.warp import Resampling, calculate_default_transform, reproject
 from streamlit_folium import st_folium
 
 from ates.areas import ATES_COLOURS, ATES_HEX, ATES_LABELS, load_areas
+from ates.dem import dem_to_contour_geojson, fetch_dem_wcs
 
 st.set_page_config(page_title="Area Map — AutoATES", layout="wide")
 
@@ -59,6 +60,13 @@ def load_ates_raster(tif_path: str):
     return ates_wgs84, latlon_bounds
 
 
+@st.cache_data
+def load_contours(min_lat: float, min_lon: float, max_lat: float, max_lon: float, interval: int):
+    """Fetch DEM and extract contours for the given bounding box."""
+    dem, bounds = fetch_dem_wcs(min_lat, min_lon, max_lat, max_lon)
+    return dem_to_contour_geojson(dem, bounds, interval=interval)
+
+
 def ates_to_png(ates: np.ndarray, alpha: float) -> str:
     a = int(255 * alpha)
     rgba = np.zeros((*ates.shape, 4), dtype=np.uint8)
@@ -75,18 +83,25 @@ def ates_to_png(ates: np.ndarray, alpha: float) -> str:
     return "data:image/png;base64," + base64.b64encode(buf.read()).decode()
 
 
-def build_map(area: dict, ates_wgs84, latlon_bounds, alpha: float):
+def build_map(area: dict, ates_wgs84, latlon_bounds, alpha: float, contour_geojson: dict | None):
     min_lat, min_lon, max_lat, max_lon = latlon_bounds
     m = folium.Map(
         location=[area["lat"], area["lon"]],
         zoom_start=area.get("zoom", 13),
         tiles="CartoDB positron",
     )
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri",
-        name="Satellite",
-    ).add_to(m)
+
+    if contour_geojson is not None:
+        folium.GeoJson(
+            contour_geojson,
+            name="Contours",
+            style_function=lambda _: {
+                "color": "#555555",
+                "weight": 0.8,
+                "opacity": 0.6,
+            },
+            tooltip=folium.GeoJsonTooltip(fields=["elevation"], aliases=["Elevation (m)"]),
+        ).add_to(m)
 
     png = ates_to_png(ates_wgs84, alpha)
     folium.raster_layers.ImageOverlay(
@@ -108,6 +123,7 @@ selected_name = st.sidebar.selectbox("Area", area_names)
 area = next(a for a in areas if a["name"] == selected_name)
 
 alpha = st.sidebar.slider("Overlay opacity", 0.0, 1.0, 0.7, 0.05)
+contour_interval = st.sidebar.select_slider("Contour interval (m)", options=[25, 50, 100], value=25)
 
 st.sidebar.markdown("### ATES legend")
 for cls in range(1, 5):
@@ -133,8 +149,21 @@ if valid.size > 0:
     total = sum(counts.values())
     cols = st.columns(4)
     for i, cls in enumerate(range(1, 5)):
-    	pct = 100 * counts[cls] / total if total > 0 else 0
-    	cols[i].metric(ATES_LABELS[cls], f"{pct:.0f}%")
+        pct = 100 * counts[cls] / total if total > 0 else 0
+        cols[i].metric(ATES_LABELS[cls], f"{pct:.0f}%")
 
-m = build_map(area, ates_wgs84, latlon_bounds, alpha)
-st_folium(m, use_container_width=True, height=620)
+@st.fragment
+def render_map(area, ates_wgs84, latlon_bounds, alpha, contour_interval):
+    min_lat, min_lon, max_lat, max_lon = latlon_bounds
+    with st.spinner("Fetching elevation data…"):
+        try:
+            contour_geojson = load_contours(min_lat, min_lon, max_lat, max_lon, contour_interval)
+        except Exception as e:
+            st.warning(f"Could not load contours: {e}")
+            contour_geojson = None
+
+    m = build_map(area, ates_wgs84, latlon_bounds, alpha, contour_geojson)
+    st_folium(m, use_container_width=True, height=620, returned_objects=[])
+
+
+render_map(area, ates_wgs84, latlon_bounds, alpha, contour_interval)
