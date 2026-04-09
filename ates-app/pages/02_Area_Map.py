@@ -123,7 +123,8 @@ selected_name = st.sidebar.selectbox("Area", area_names)
 area = next(a for a in areas if a["name"] == selected_name)
 
 alpha = st.sidebar.slider("Overlay opacity", 0.0, 1.0, 0.7, 0.05)
-contour_interval = st.sidebar.select_slider("Contour interval (m)", options=[25, 50, 100], value=25)
+# CDEM native resolution is ~30 m, so 30 m contours match the data density.
+contour_interval = 30
 
 st.sidebar.markdown("### ATES legend")
 for cls in range(1, 5):
