@@ -8,18 +8,18 @@ DATA_DIR = Path(__file__).parent.parent / "data" / "areas"
 # Standard Canadian ATES colour scheme
 ATES_COLOURS = {
     0: (0, 0, 0, 0),         # No terrain — transparent
-    1: (0, 180, 0, 200),     # Low — green
-    2: (30, 80, 255, 200),   # Moderate — blue
-    3: (40, 40, 40, 200),    # Considerable — black
-    4: (220, 30, 30, 200),   # High — red
+    1: (0, 180, 0, 200),     # Simple — green
+    2: (30, 80, 255, 200),   # Challenging — blue
+    3: (40, 40, 40, 200),    # Complex — black
+    4: (220, 30, 30, 200),   # Extreme — red
 }
 
 ATES_LABELS = {
     0: "No avalanche terrain",
-    1: "Low",
-    2: "Moderate",
-    3: "Considerable",
-    4: "High",
+    1: "Simple",
+    2: "Challenging",
+    3: "Complex",
+    4: "Extreme",
 }
 
 ATES_HEX = {
