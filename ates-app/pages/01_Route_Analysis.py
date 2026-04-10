@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from ates.advisory import wet_avalanche_risk
+# from ates.advisory import wet_avalanche_risk
 from ates.areas import ATES_HEX, ATES_LABELS, load_areas
 from ates.gpx import parse_gpx
 from ates.sample import find_area_for_points, sample_ates
@@ -35,7 +35,10 @@ def _haversine_m(lat1, lon1, lat2, lon2) -> float:
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlam = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    )
     return 2 * R * math.asin(math.sqrt(a))
 
 
@@ -43,8 +46,10 @@ def _cumulative_distance(points: list[dict]) -> list[float]:
     dist = [0.0]
     for i in range(1, len(points)):
         d = _haversine_m(
-            points[i - 1]["lat"], points[i - 1]["lon"],
-            points[i]["lat"], points[i]["lon"],
+            points[i - 1]["lat"],
+            points[i - 1]["lon"],
+            points[i]["lat"],
+            points[i]["lon"],
         )
         dist.append(dist[-1] + d)
     return dist
@@ -118,7 +123,9 @@ def _elevation_profile(points: list[dict], classes: list[int]) -> alt.Chart | No
         .mark_line(point=False)
         .encode(
             x=alt.X("distance_km:Q", title="Distance (km)"),
-            y=alt.Y("elevation_m:Q", title="Elevation (m)", scale=alt.Scale(zero=False)),
+            y=alt.Y(
+                "elevation_m:Q", title="Elevation (m)", scale=alt.Scale(zero=False)
+            ),
             color=alt.Color("ates_class:N", scale=colour_scale, title="ATES class"),
             tooltip=[
                 alt.Tooltip("distance_km:Q", title="Distance (km)", format=".2f"),
@@ -131,15 +138,15 @@ def _elevation_profile(points: list[dict], classes: list[int]) -> alt.Chart | No
     return chart
 
 
-def _advisory_banner(advisory: dict):
-    level = advisory["level"]
-    reason = advisory["reason"]
-    if level == "elevated":
-        st.error(f"Wet avalanche risk: **Elevated** — {reason}")
-    elif level == "moderate":
-        st.warning(f"Wet avalanche risk: **Moderate** — {reason}")
-    else:
-        st.info(f"Wet avalanche risk: **Low** — {reason}")
+# def _advisory_banner(advisory: dict):
+#     level = advisory["level"]
+#     reason = advisory["reason"]
+#     if level == "elevated":
+#         st.error(f"Wet avalanche risk: **Elevated** — {reason}")
+#     elif level == "moderate":
+#         st.warning(f"Wet avalanche risk: **Moderate** — {reason}")
+#     else:
+#         st.info(f"Wet avalanche risk: **Low** — {reason}")
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +158,10 @@ areas = load_areas()
 
 uploaded = st.sidebar.file_uploader("Upload GPX track", type=["gpx"])
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Trip date & time")
-trip_date = st.sidebar.date_input("Date", value=date.today())
-trip_time = st.sidebar.time_input("Start time (local)", value=time(7, 0))
+# st.sidebar.markdown("---")
+# st.sidebar.markdown("### Trip date & time")
+# trip_date = st.sidebar.date_input("Date", value=date.today())
+# trip_time = st.sidebar.time_input("Start time (local)", value=time(7, 0))
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ATES legend")
@@ -188,9 +195,9 @@ if not points:
     st.stop()
 
 # Wet avalanche advisory
-trip_dt = datetime.combine(trip_date, trip_time)
-advisory = wet_avalanche_risk(trip_dt)
-_advisory_banner(advisory)
+# trip_dt = datetime.combine(trip_date, trip_time)
+# advisory = wet_avalanche_risk(trip_dt)
+# _advisory_banner(advisory)
 
 # Find matching area
 area = find_area_for_points(areas, points)
