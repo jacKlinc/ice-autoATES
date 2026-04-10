@@ -1,2 +1,5 @@
-**/__pycache__/**
-ates-app/.coverage
+**/__pycache__/
+.venv/
+*.egg-info/
+.coverage
+.pytest_cache/

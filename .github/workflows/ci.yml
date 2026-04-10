@@ -5,9 +5,6 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ates-app
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
