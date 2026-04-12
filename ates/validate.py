@@ -23,10 +23,10 @@ ModelFn = Callable[[np.ndarray, object], np.ndarray]
 
 
 class Validator:
-    """Validates an ATES model against ground-truth zones from one or more KMZ files.
+    """Validates an ATES model against ground-truth zones from a KMZ file.
 
     Args:
-        kmz: Path to a KMZ file, or a list of paths to combine into one validation set.
+        kmz: Path to a KMZ file.
         model: Module or callable with signature ``run(dem, transform) -> np.ndarray``.
                The returned array must use int16 ATES classes (1–4) with nodata = -9999.
 
@@ -42,8 +42,8 @@ class Validator:
         evaluate.plot_side_by_side(v.predicted, v.truth)
     """
 
-    def __init__(self, kmz: list[Path], model: ModelFn) -> None:
-        self.kmz_paths: list[Path] = [Path(p) for p in kmz]
+    def __init__(self, kmz: Path | str, model: ModuleType | ModelFn) -> None:
+        self.kmz_path: Path = Path(kmz)
         self.model: ModelFn = model.run if isinstance(model, ModuleType) else model
 
         self._predicted: np.ndarray | None = None
@@ -84,12 +84,7 @@ class Validator:
     # ------------------------------------------------------------------
 
     def _load_zones(self) -> gpd.GeoDataFrame:
-        frames = [
-            gpd.read_file(p, driver="libkml", layer="Zones") for p in self.kmz_paths
-        ]
-        zones = gpd.GeoDataFrame(
-            gpd.pd.concat(frames, ignore_index=True), crs=frames[0].crs
-        )
+        zones = gpd.read_file(self.kmz_path, driver="libkml", layer="Zones")
         zones["ates_class"] = zones["Name"].map(_NAME_TO_CLASS)
         return zones
 

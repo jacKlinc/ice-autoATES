@@ -6,6 +6,9 @@ Classes are 1 (Simple), 2 (Challenging), 3 (Complex).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap
@@ -23,7 +26,11 @@ _CMAP = ListedColormap(_ATES_COLOURS)
 _NORM = BoundaryNorm([0.5, 1.5, 2.5, 3.5], _CMAP.N)
 
 
-def report(predicted: np.ndarray, truth: np.ndarray) -> None:
+def report(
+    predicted: np.ndarray,
+    truth: np.ndarray,
+    save_dir: Path | str | None = None,
+) -> None:
     """Print sklearn classification report for ATES classes 1–3.
 
     Args:
@@ -31,11 +38,17 @@ def report(predicted: np.ndarray, truth: np.ndarray) -> None:
                    collapsed to Complex (3) before calling when validating
                    against ATES v1 ground truth.
         truth:     int16 ground-truth raster, nodata = -9999.
+        save_dir:  optional directory in which to write results.json.
     """
     mask = (truth != -9999) & (predicted != -9999)
-    print(classification_report(
-        truth[mask], predicted[mask], labels=ATES_CLASSES, target_names=ATES_LABELS
-    ))
+    results = classification_report(
+        truth[mask], predicted[mask], labels=ATES_CLASSES, target_names=ATES_LABELS,
+        output_dict=save_dir is not None,
+    )
+    if save_dir is not None:
+        (Path(save_dir) / "results.json").write_text(json.dumps(results, indent=2))
+    else:
+        print(results)
 
 
 def plot_confusion_matrix(predicted: np.ndarray, truth: np.ndarray) -> None:
