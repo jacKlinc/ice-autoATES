@@ -1,78 +1,87 @@
-"""Evaluation metrics for ATES classification models.
-
-Compares a predicted ATES raster against a ground-truth raster and returns
-per-class precision, recall, F1, and macro F1 — matching the metrics reported
-in Vors et al. (2024).
+"""Evaluation utilities for ATES classification models.
 
 All functions ignore nodata pixels (value -9999) in both arrays.
-Classes are 1 (Simple) through 4 (Extreme).
+Classes are 1 (Simple), 2 (Challenging), 3 (Complex).
 """
+
 from __future__ import annotations
 
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import BoundaryNorm, ListedColormap
+from matplotlib.patches import Patch
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
+
+ATES_LABELS = ["Simple", "Challenging", "Complex"]
+ATES_CLASSES = [1, 2, 3]
+_ATES_COLOURS = ["#00b400", "#1e50ff", "#282828"]
+_CMAP = ListedColormap(_ATES_COLOURS)
+_NORM = BoundaryNorm([0.5, 1.5, 2.5, 3.5], _CMAP.N)
 
 
-def confusion_matrix(predicted: np.ndarray, truth: np.ndarray) -> np.ndarray:
-    """Build a 4×4 confusion matrix for ATES classes 1–4.
+def report(predicted: np.ndarray, truth: np.ndarray) -> None:
+    """Print sklearn classification report for ATES classes 1–3.
 
-    Rows = true class, columns = predicted class.
-    Pixels where either array is nodata (-9999) are excluded.
-
-    Returns:
-        np.ndarray of shape (4, 4), dtype int64.
+    Args:
+        predicted: int16 ATES raster, nodata = -9999. Extreme (4) should be
+                   collapsed to Complex (3) before calling when validating
+                   against ATES v1 ground truth.
+        truth:     int16 ground-truth raster, nodata = -9999.
     """
     mask = (truth != -9999) & (predicted != -9999)
-    t = truth[mask].astype(np.int16)
-    p = predicted[mask].astype(np.int16)
-
-    mat = np.zeros((4, 4), dtype=np.int64)
-    for i, true_cls in enumerate(range(1, 5)):
-        for j, pred_cls in enumerate(range(1, 5)):
-            mat[i, j] = int(np.sum((t == true_cls) & (p == pred_cls)))
-    return mat
+    print(classification_report(
+        truth[mask], predicted[mask], labels=ATES_CLASSES, target_names=ATES_LABELS
+    ))
 
 
-def compute_metrics(predicted: np.ndarray, truth: np.ndarray) -> dict:
-    """Compute per-class and macro F1 scores.
+def plot_confusion_matrix(predicted: np.ndarray, truth: np.ndarray) -> None:
+    """Plot confusion matrix comparing predicted vs. ground-truth ATES rasters.
 
     Args:
         predicted: int16 ATES raster, nodata = -9999.
         truth:     int16 ground-truth raster, nodata = -9999.
-
-    Returns:
-        {
-            "class_f1":        {1: float, 2: float, 3: float, 4: float},
-            "macro_f1":        float,
-            "precision":       {1: float, ...},
-            "recall":          {1: float, ...},
-            "confusion_matrix": np.ndarray (4×4),
-        }
     """
-    mat = confusion_matrix(predicted, truth)
+    mask = (truth != -9999) & (predicted != -9999)
+    cm = confusion_matrix(truth[mask], predicted[mask], labels=ATES_CLASSES)
 
-    class_f1: dict[int, float] = {}
-    precision: dict[int, float] = {}
-    recall: dict[int, float] = {}
+    disp = ConfusionMatrixDisplay(cm, display_labels=ATES_LABELS)
+    _, ax = plt.subplots(figsize=(5, 4))
+    disp.plot(ax=ax, colorbar=False, cmap="Blues")
+    ax.set_title("Confusion matrix — simple model vs. Avalanche Canada (v1)")
+    plt.tight_layout()
+    plt.show()
 
-    for i, cls in enumerate(range(1, 5)):
-        tp = int(mat[i, i])
-        fp = int(mat[:, i].sum()) - tp   # predicted cls but not true cls
-        fn = int(mat[i, :].sum()) - tp   # true cls but not predicted cls
 
-        p = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        r = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+def plot_side_by_side(
+    predicted: np.ndarray,
+    truth: np.ndarray,
+    predicted_title: str = "Predicted",
+    truth_title: str = "Ground truth (Avalanche Canada v1)",
+) -> None:
+    """Plot predicted and ground-truth ATES rasters side by side.
 
-        precision[cls] = p
-        recall[cls] = r
-        class_f1[cls] = f1
+    Args:
+        predicted: int16 ATES raster, nodata = -9999.
+        truth:     int16 ground-truth raster, nodata = -9999.
+        predicted_title: title for the predicted panel.
+        truth_title:     title for the ground-truth panel.
+    """
+    def _show(ax: plt.Axes, arr: np.ndarray, title: str) -> None:
+        disp = arr.astype(float)
+        disp[disp == -9999] = np.nan
+        ax.imshow(disp, cmap=_CMAP, norm=_NORM, interpolation="nearest")
+        ax.set_title(title)
+        ax.axis("off")
 
-    macro_f1 = float(np.mean(list(class_f1.values())))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    _show(axes[0], predicted, predicted_title)
+    _show(axes[1], truth, truth_title)
 
-    return {
-        "class_f1": class_f1,
-        "macro_f1": macro_f1,
-        "precision": precision,
-        "recall": recall,
-        "confusion_matrix": mat,
-    }
+    legend = [Patch(color=c, label=l) for c, l in zip(_ATES_COLOURS, ATES_LABELS)]
+    fig.legend(handles=legend, loc="lower center", ncol=3, frameon=False)
+    plt.tight_layout()
+    plt.show()
