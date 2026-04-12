@@ -50,7 +50,17 @@ uv run python scripts/generate_ates_tif.py <name>
 uv sync --group dev
 uv run --group dev pytest --cov=ates
 ```
+### Installing GDAL
 
+On Ubuntu:
+```bash
+sudo apt-get install gdal-bin libgdal-dev
+```
+Then install the Python bindings pinned to match the system version:
+```bash
+gdal-config --version  # e.g. 3.8.4
+uv add gdal==3.8.4
+```
 ---
 
 ## Project Structure
