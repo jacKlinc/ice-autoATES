@@ -61,6 +61,7 @@ def plot_confusion_matrix(predicted: np.ndarray, truth: np.ndarray) -> None:
         predicted: int16 ATES raster, nodata = -9999.
         truth:     int16 ground-truth raster, nodata = -9999.
     """
+    # TODO: add plot title param
     mask = (truth != -9999) & (predicted != -9999)
     cm = confusion_matrix(truth[mask], predicted[mask], labels=ATES_CLASSES)
 
