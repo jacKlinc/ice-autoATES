@@ -42,9 +42,15 @@ class Validator:
         evaluate.plot_side_by_side(v.predicted, v.truth)
     """
 
-    def __init__(self, kmz: Path | str, model: ModuleType | ModelFn) -> None:
+    def __init__(
+        self,
+        kmz: Path | str,
+        model: ModuleType | ModelFn,
+        **model_kwargs,
+    ) -> None:
         self.kmz_path: Path = Path(kmz)
         self.model: ModelFn = model.run if isinstance(model, ModuleType) else model
+        self.model_kwargs = model_kwargs
 
         self._predicted: np.ndarray | None = None
         self._truth: np.ndarray | None = None
@@ -68,7 +74,7 @@ class Validator:
             zones, utm_crs
         )
 
-        predicted = self.model(dem_utm, dst_transform)
+        predicted = self.model(dem_utm, dst_transform, **self.model_kwargs)
         # Collapse Extreme (4) → Complex (3): Avalanche Canada KMZs use ATES v1
         # which has no Extreme class.
         predicted[predicted == 4] = 3
