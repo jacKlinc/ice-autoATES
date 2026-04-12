@@ -42,7 +42,10 @@ def report(
     """
     mask = (truth != -9999) & (predicted != -9999)
     results = classification_report(
-        truth[mask], predicted[mask], labels=ATES_CLASSES, target_names=ATES_LABELS,
+        truth[mask],
+        predicted[mask],
+        labels=ATES_CLASSES,
+        target_names=ATES_LABELS,
         output_dict=save_dir is not None,
     )
     if save_dir is not None:
@@ -83,6 +86,7 @@ def plot_side_by_side(
         predicted_title: title for the predicted panel.
         truth_title:     title for the ground-truth panel.
     """
+
     def _show(ax: plt.Axes, arr: np.ndarray, title: str) -> None:
         disp = arr.astype(float)
         disp[disp == -9999] = np.nan
@@ -90,8 +94,11 @@ def plot_side_by_side(
         ax.set_title(title)
         ax.axis("off")
 
+    # Mask predicted to ground-truth coverage so both panels share the same footprint
+    predicted_masked = np.where(truth != -9999, predicted, -9999).astype(np.int16)
+
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    _show(axes[0], predicted, predicted_title)
+    _show(axes[0], predicted_masked, predicted_title)
     _show(axes[1], truth, truth_title)
 
     legend = [Patch(color=c, label=l) for c, l in zip(_ATES_COLOURS, ATES_LABELS)]
