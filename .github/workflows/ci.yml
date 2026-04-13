@@ -11,3 +11,5 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv run --group dev pytest --cov=ates --cov-report=term-missing
+
+# TODO: add linting when in next PR

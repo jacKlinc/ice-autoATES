@@ -27,6 +27,8 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.warp import Resampling, calculate_default_transform, reproject, transform_bounds
 
+from ates.models.simple import classify as _classify, slope_deg as _slope_deg
+
 # Buffer around the metadata centre point (degrees).
 # ~0.05° lat ≈ 5.5 km, ~0.08° lon ≈ 5.5 km at 51°N.
 _LAT_BUFFER = 0.05
@@ -88,24 +90,6 @@ def _fetch_cdem_utm(
     )
     return dem_utm, dst_transform
 
-
-def _slope_deg(dem: np.ndarray, res_x: float, res_y: float) -> np.ndarray:
-    filled = np.where(np.isfinite(dem), dem, np.nanmedian(dem))
-    dy, dx = np.gradient(filled, res_y, res_x)
-    slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
-    slope[~np.isfinite(dem)] = np.nan
-    return slope
-
-
-def _classify(slope: np.ndarray) -> np.ndarray:
-    """Map slope angle to ATES class (1–4); nodata → -9999."""
-    ates = np.full(slope.shape, -9999, dtype=np.int16)
-    valid = np.isfinite(slope)
-    ates[valid & (slope < 25)] = 1
-    ates[valid & (slope >= 25) & (slope < 35)] = 2
-    ates[valid & (slope >= 35) & (slope < 45)] = 3
-    ates[valid & (slope >= 45)] = 4
-    return ates
 
 
 def generate(area_name: str) -> Path:

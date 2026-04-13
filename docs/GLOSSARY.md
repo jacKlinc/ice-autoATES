@@ -2,6 +2,8 @@
 
 Here's a glossary of terms relevant to working with DEMs and geospatial rasters:
 
+**Affine transformation**: geometric mapping that preserves lines, parallelism and colinearity but not distance or angles
+
 ### Raster & Data Structure
 
 **Raster is vaster, but vector is corrector**
