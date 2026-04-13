@@ -18,6 +18,16 @@ _CDEM_COG_URL = (
     "/store/elevation/cdem-cdsm/cdem/cdem-canada-dem.tif"
 )
 
+# MRDEM — Medium Resolution DEM, the NRCan successor to CDEM (released 2024).
+# 30 m DTM + DSM, coast-to-coast coverage, EPSG:3979 (Canada Lambert), nodata = -32767.
+# Integrates Copernicus DEM + LiDAR where available, including mountain terrain.
+# DSM − DTM = nDSM (normalised Digital Surface Model) — proxy for canopy height at 30 m.
+# Accessed as VRTs that stream individual COG tiles — same windowed-read pattern as CDEM.
+# Open Canada portal: https://open.canada.ca/data/en/dataset/18752265-bda3-498c-a4ba-9dfe68cb98da
+_MRDEM_DTM_VRT = (
+    "https://canelevation-dem.s3.ca-central-1.amazonaws.com/mrdem-30/mrdem-30-dtm.vrt"
+)
+
 
 def fetch_dem_wcs(
     min_lat: float, min_lon: float, max_lat: float, max_lon: float
@@ -73,6 +83,69 @@ def fetch_dem_wcs(
     bottom = top + native_transform.e * dem.shape[0]
 
     return dem, (bottom, left, top, right)
+
+
+def fetch_dem_mrdem(
+    min_lat: float, min_lon: float, max_lat: float, max_lon: float
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Fetch MRDEM elevation for the given WGS84 bounding box via COG windowed read.
+
+    The Medium Resolution DEM (MRDEM) is NRCan's 2024 successor to the CDEM.
+    It integrates Copernicus DEM satellite data with LiDAR where available,
+    providing 30 m DTM coverage coast-to-coast including mountain terrain.
+
+    Prefer this over :func:`fetch_dem_wcs` (CDEM) for new work — MRDEM has
+    better vertical accuracy in alpine areas and a more current data vintage.
+
+    Returns:
+        ``(dem, latlon_bounds)`` — same format as :func:`fetch_dem_wcs`.
+        ``dem`` is a float32 array with nodata as NaN.
+        ``latlon_bounds`` is ``(min_lat, min_lon, max_lat, max_lon)`` in EPSG:4326.
+    """
+    wgs84 = CRS.from_epsg(4326)
+
+    with rasterio.open(_MRDEM_DTM_VRT) as src:
+        native_bounds = transform_bounds(
+            wgs84, src.crs, min_lon, min_lat, max_lon, max_lat
+        )
+        window = src.window(*native_bounds)
+        dem = src.read(1, window=window).astype(np.float32)
+        nodata = src.nodata
+        native_transform = src.window_transform(window)
+        crs = src.crs
+
+    if nodata is not None:
+        dem[dem == nodata] = np.nan
+
+    # MRDEM native CRS is EPSG:3979 (Canada Lambert) — reproject to WGS84
+    height, width = dem.shape
+    dst_transform, dst_width, dst_height = calculate_default_transform(
+        crs,
+        wgs84,
+        width,
+        height,
+        left=native_transform.c,
+        bottom=native_transform.f + native_transform.e * height,
+        right=native_transform.c + native_transform.a * width,
+        top=native_transform.f,
+    )
+    dem_wgs84 = np.full((dst_height, dst_width), np.nan, dtype=np.float32)
+    reproject(
+        source=dem,
+        destination=dem_wgs84,
+        src_transform=native_transform,
+        src_crs=crs,
+        dst_transform=dst_transform,
+        dst_crs=wgs84,
+        resampling=Resampling.bilinear,
+    )
+
+    left = dst_transform.c
+    top = dst_transform.f
+    right = left + dst_transform.a * dst_width
+    bottom = top + dst_transform.e * dst_height
+
+    return dem_wgs84, (bottom, left, top, right)
 
 
 def dem_to_contour_geojson(
