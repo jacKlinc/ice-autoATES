@@ -23,6 +23,9 @@ dependencies = [
     "streamlit-folium>=0.27.1",
 ]
 
+[project.optional-dependencies]
+autoates = ["autoates-v2-0"]
+
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
