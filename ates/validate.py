@@ -14,7 +14,7 @@ from rasterio.features import rasterize
 from rasterio.transform import from_bounds
 from rasterio.warp import Resampling, calculate_default_transform, reproject
 
-from ates.dem import fetch_dem_wcs
+from ates.dem import fetch_dem_mrdem, fetch_dem_wcs
 
 _NAME_TO_CLASS = {"Simple": 1, "Challenging": 2, "Complex": 3, "Extreme": 4}
 
@@ -42,14 +42,25 @@ class Validator:
         evaluate.plot_side_by_side(v.predicted, v.truth)
     """
 
+    _DEM_SOURCES = {
+        "mrdem": fetch_dem_mrdem,
+        "cdem": fetch_dem_wcs,
+    }
+
     def __init__(
         self,
         kmz: Path | str,
         model: ModuleType | ModelFn,
+        dem_source: str = "mrdem",
+        resolution_m: float = 30.0,
         **model_kwargs,
     ) -> None:
+        if dem_source not in self._DEM_SOURCES:
+            raise ValueError(f"dem_source must be one of {list(self._DEM_SOURCES)}, got {dem_source!r}")
         self.kmz_path: Path = Path(kmz)
         self.model: ModelFn = model.run if isinstance(model, ModuleType) else model
+        self.dem_source = dem_source
+        self.resolution_m = resolution_m
         self.model_kwargs = model_kwargs
 
         self._predicted: np.ndarray | None = None
@@ -100,7 +111,8 @@ class Validator:
         wgs84 = CRS.from_epsg(4326)
         minx, miny, maxx, maxy = zones.total_bounds
 
-        dem_wgs84, (min_lat, min_lon, max_lat, max_lon) = fetch_dem_wcs(
+        fetch_dem = self._DEM_SOURCES[self.dem_source]
+        dem_wgs84, (min_lat, min_lon, max_lat, max_lon) = fetch_dem(
             min_lat=miny, min_lon=minx, max_lat=maxy, max_lon=maxx
         )
         src_transform = from_bounds(
@@ -115,6 +127,7 @@ class Validator:
             bottom=min_lat,
             right=max_lon,
             top=max_lat,
+            resolution=self.resolution_m,
         )
         dem_utm = np.full((dst_height, dst_width), np.nan, dtype=np.float32)
         reproject(

@@ -28,6 +28,10 @@ _MRDEM_DTM_VRT = (
     "https://canelevation-dem.s3.ca-central-1.amazonaws.com/mrdem-30/mrdem-30-dtm.vrt"
 )
 
+_MRDEM_DSM_VRT = (
+    "https://canelevation-dem.s3.ca-central-1.amazonaws.com/mrdem-30/mrdem-30-dsm.vrt"
+)
+
 
 def fetch_dem_wcs(
     min_lat: float, min_lon: float, max_lat: float, max_lon: float
@@ -146,6 +150,74 @@ def fetch_dem_mrdem(
     bottom = top + dst_transform.e * dst_height
 
     return dem_wgs84, (bottom, left, top, right)
+
+
+def fetch_canopy_height_mrdem(
+    min_lat: float, min_lon: float, max_lat: float, max_lon: float
+) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+    """Fetch a 30 m canopy height model (nDSM) from MRDEM DSM − DTM.
+
+    Both the DSM and DTM are on identical 30 m EPSG:3979 grids, so they can be
+    read from the same window and differenced directly before reprojection.
+
+    Negative differences (DSM < DTM, a known artefact in flat water/snow) are
+    clipped to zero. Nodata pixels in either layer become NaN in the output.
+
+    Returns:
+        ``(ndsm, latlon_bounds)`` — same format as :func:`fetch_dem_mrdem`.
+        Values are canopy height in metres (float32, NaN for nodata).
+    """
+    wgs84 = CRS.from_epsg(4326)
+    _MRDEM_NODATA = -32767.0
+
+    with (
+        rasterio.open(_MRDEM_DTM_VRT) as dtm_src,
+        rasterio.open(_MRDEM_DSM_VRT) as dsm_src,
+    ):
+        native_bounds = transform_bounds(
+            wgs84, dtm_src.crs, min_lon, min_lat, max_lon, max_lat
+        )
+        window = dtm_src.window(*native_bounds)
+        dtm = dtm_src.read(1, window=window).astype(np.float32)
+        dsm = dsm_src.read(1, window=window).astype(np.float32)
+        native_transform = dtm_src.window_transform(window)
+        crs = dtm_src.crs
+
+    dtm[dtm == _MRDEM_NODATA] = np.nan
+    dsm[dsm == _MRDEM_NODATA] = np.nan
+
+    ndsm = np.where(
+        np.isfinite(dtm) & np.isfinite(dsm), np.maximum(dsm - dtm, 0.0), np.nan
+    )
+
+    height, width = ndsm.shape
+    dst_transform, dst_width, dst_height = calculate_default_transform(
+        crs,
+        wgs84,
+        width,
+        height,
+        left=native_transform.c,
+        bottom=native_transform.f + native_transform.e * height,
+        right=native_transform.c + native_transform.a * width,
+        top=native_transform.f,
+    )
+    ndsm_wgs84 = np.full((dst_height, dst_width), np.nan, dtype=np.float32)
+    reproject(
+        source=ndsm,
+        destination=ndsm_wgs84,
+        src_transform=native_transform,
+        src_crs=crs,
+        dst_transform=dst_transform,
+        dst_crs=wgs84,
+        resampling=Resampling.bilinear,
+    )
+
+    left = dst_transform.c
+    top = dst_transform.f
+    right = left + dst_transform.a * dst_width
+    bottom = top + dst_transform.e * dst_height
+
+    return ndsm_wgs84, (bottom, left, top, right)
 
 
 def dem_to_contour_geojson(
