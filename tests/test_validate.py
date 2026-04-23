@@ -1,15 +1,15 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import geopandas as gpd
 import numpy as np
 import pytest
-from affine import Affine
+from shapely.geometry import box
 
 from ates.validate import Validator
 
-RES = 30.0
-TRANSFORM = Affine(RES, 0, 0, 0, -RES, 0)
 SHAPE = (20, 20)
+_DEM_BOUNDS = (49.0, -123.0, 50.0, -122.0)  # (min_lat, min_lon, max_lat, max_lon) — BC
 
 
 def _flat_dem():
@@ -17,133 +17,115 @@ def _flat_dem():
 
 
 def _mock_zones():
-    """Return a minimal GeoDataFrame with the interface Validator uses."""
-    import geopandas as gpd
-    from shapely.geometry import box
-
-    zones = gpd.GeoDataFrame(
+    # BC coordinates so estimate_utm_crs returns UTM Zone 10N, matching _DEM_BOUNDS
+    return gpd.GeoDataFrame(
         {
             "Name": ["Simple", "Challenging", "Complex"],
             "ates_class": [1, 2, 3],
-            "geometry": [box(0, 0, 1, 1), box(1, 0, 2, 1), box(2, 0, 3, 1)],
+            "geometry": [
+                box(-123.0, 49.0, -122.7, 49.3),
+                box(-122.7, 49.0, -122.4, 49.3),
+                box(-122.4, 49.0, -122.1, 49.3),
+            ],
         },
         crs="EPSG:4326",
     )
-    return zones
 
 
-def _make_validator(tmp_path):
-    """Build a Validator with all external I/O mocked out."""
-    kmz = tmp_path / "layers.kmz"
-    kmz.touch()
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
+
+@pytest.fixture
+def kmz(tmp_path):
+    path = tmp_path / "layers.kmz"
+    path.touch()
+    return path
+
+
+@pytest.fixture
+def validator(kmz):
     model_fn = MagicMock(return_value=np.ones(SHAPE, dtype=np.int16))
+    return Validator(kmz, model_fn), model_fn
 
-    v = Validator(kmz, model_fn)
+
+@pytest.fixture
+def mocked_run(validator):
+    v, model_fn = validator
+    with (
+        patch("ates.validate.Validator._load_zones", return_value=_mock_zones()),
+        patch("ates.validate.fetch_dem_mrdem", return_value=(_flat_dem(), _DEM_BOUNDS)),
+    ):
+        v.run()
     return v, model_fn
 
 
 # ---------------------------------------------------------------------------
-# __init__
+# Test classes
 # ---------------------------------------------------------------------------
 
 
-def test_kmz_path_stored_as_path(tmp_path):
-    kmz = tmp_path / "layers.kmz"
-    kmz.touch()
-    v = Validator(str(kmz), lambda d, t: d)
-    assert isinstance(v.kmz_path, Path)
+class TestInit:
+    """Validator.__init__ stores arguments and validates them."""
+
+    def test_kmz_path_stored_as_path(self, kmz):
+        v = Validator(str(kmz), lambda d, t: d)
+        assert isinstance(v.kmz_path, Path)
+
+    def test_model_module_unwrapped(self, kmz):
+        from ates.models import simple
+
+        v = Validator(kmz, simple)
+        assert v.model is simple.run
+
+    def test_model_callable_stored_directly(self, kmz):
+        fn = lambda d, t: d
+        v = Validator(kmz, fn)
+        assert v.model is fn
+
+    def test_invalid_dem_source_raises(self, kmz):
+        with pytest.raises(ValueError):
+            Validator(kmz, lambda d, t: d, dem_source="invalid")
 
 
-def test_model_module_unwrapped(tmp_path):
-    kmz = tmp_path / "layers.kmz"
-    kmz.touch()
-    from ates.models import simple
+class TestProperties:
+    """Lazy properties guard against access before run() is called."""
 
-    v = Validator(kmz, simple)
-    assert v.model is simple.run
-
-
-def test_model_callable_stored_directly(tmp_path):
-    kmz = tmp_path / "layers.kmz"
-    kmz.touch()
-    fn = lambda d, t: d
-    v = Validator(kmz, fn)
-    assert v.model is fn
+    @pytest.mark.parametrize("prop", ["predicted", "truth"])
+    def test_raises_before_run(self, validator, prop):
+        v, _ = validator
+        with pytest.raises(RuntimeError):
+            getattr(v, prop)
 
 
-# ---------------------------------------------------------------------------
-# properties raise before run()
-# ---------------------------------------------------------------------------
+class TestRun:
+    """Validator.run() executes the full pipeline with external I/O mocked."""
 
+    def test_returns_self(self, validator):
+        v, _ = validator
+        with (
+            patch("ates.validate.Validator._load_zones", return_value=_mock_zones()),
+            patch(
+                "ates.validate.fetch_dem_mrdem", return_value=(_flat_dem(), _DEM_BOUNDS)
+            ),
+        ):
+            result = v.run()
+        assert result is v
 
-def test_predicted_raises_before_run(tmp_path):
-    v, _ = _make_validator(tmp_path)
-    with pytest.raises(RuntimeError):
-        _ = v.predicted
+    def test_populates_predicted_and_truth(self, mocked_run):
+        v, _ = mocked_run
+        assert v.predicted.ndim == 2
+        assert v.truth.ndim == 2
 
-
-def test_truth_raises_before_run(tmp_path):
-    v, _ = _make_validator(tmp_path)
-    with pytest.raises(RuntimeError):
-        _ = v.truth
-
-
-# ---------------------------------------------------------------------------
-# run()
-# ---------------------------------------------------------------------------
-
-
-def test_run_returns_self(tmp_path):
-    v, _ = _make_validator(tmp_path)
-    zones = _mock_zones()
-
-    with (
-        patch("ates.validate.Validator._load_zones", return_value=zones),
-        patch(
-            "ates.validate.fetch_dem_wcs",
-            return_value=(_flat_dem(), (49.0, -123.0, 50.0, -122.0)),
-        ),
-    ):
-        result = v.run()
-
-    assert result is v
-
-
-def test_run_collapses_extreme_to_complex(tmp_path):
-    kmz = tmp_path / "layers.kmz"
-    kmz.touch()
-    # Model returns class 4 everywhere
-    model_fn = MagicMock(return_value=np.full(SHAPE, 4, dtype=np.int16))
-    v = Validator(kmz, model_fn)
-    zones = _mock_zones()
-
-    with (
-        patch("ates.validate.Validator._load_zones", return_value=zones),
-        patch(
-            "ates.validate.fetch_dem_wcs",
-            return_value=(_flat_dem(), (49.0, -123.0, 50.0, -122.0)),
-        ),
-    ):
-        v.run()
-
-    assert (v.predicted[v.predicted != -9999] == 3).all()
-
-
-def test_run_populates_predicted_and_truth(tmp_path):
-    v, _ = _make_validator(tmp_path)
-    zones = _mock_zones()
-
-    with (
-        patch("ates.validate.Validator._load_zones", return_value=zones),
-        patch(
-            "ates.validate.fetch_dem_wcs",
-            return_value=(_flat_dem(), (49.0, -123.0, 50.0, -122.0)),
-        ),
-    ):
-        v.run()
-
-    assert v.predicted is not None
-    assert v.truth is not None
-    assert v.predicted.ndim == 2
-    assert v.truth.ndim == 2
+    def test_collapses_extreme_to_complex(self, kmz):
+        model_fn = MagicMock(return_value=np.full(SHAPE, 4, dtype=np.int16))
+        v = Validator(kmz, model_fn)
+        with (
+            patch("ates.validate.Validator._load_zones", return_value=_mock_zones()),
+            patch(
+                "ates.validate.fetch_dem_mrdem", return_value=(_flat_dem(), _DEM_BOUNDS)
+            ),
+        ):
+            v.run()
+        assert (v.predicted[v.predicted != -9999] == 4).sum() == 0

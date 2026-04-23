@@ -18,6 +18,7 @@ dependencies = [
     "scikit-image>=0.26.0",
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
+    "seaborn>=0.13.2",
     "streamlit>=1.56.0",
     "streamlit-folium>=0.27.1",
 ]
@@ -28,8 +29,12 @@ autoates = ["autoates-v2-0"]
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "pyinstrument>=5.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
+]
+geo = [
+    "gdal==3.10.3",
 ]
 
 [tool.uv.sources]
