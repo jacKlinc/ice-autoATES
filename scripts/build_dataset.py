@@ -61,7 +61,7 @@ def _run_flowpy(dem_path: Path, release_path: Path, output_dir: Path, alpha: int
 
     forest = np.zeros_like(dem)
     flux_threshold = 3e-4
-    max_z = 8848
+    max_z = 270  # (m) recommended for avalanche (8848 = Everest, only for rockfall/extreme cases)
 
     available_memory = psutil.virtual_memory()[1]
     max_procs = max(1, int(available_memory / (dem.nbytes * 10)))
@@ -169,12 +169,11 @@ def benchmark_one(kmz_path: Path, utm_resolution_m: float = 30.0):
 
         # --- 3. Run PRA ---
         # PRA writes outputs relative to cwd, so chdir into the temp dir first.
-        # Use no_forest to avoid the bav/sen2cc forest-read bug in PRA_AutoATES.py.
         os.chdir(wd)
         PRA(
-            "no_forest",
+            "bav",
             str(dem_path),
-            str(dem_path),
+            str(canopy_path),
             radius=2,
             prob=0.5,
             winddir=0,
@@ -197,7 +196,7 @@ if __name__ == "__main__":
         Path(__file__).parent.parent
         / "data"
         / "validation"
-        / "brandywine"
+        / "mount-seymour"
         / "layers.kmz"
     )
     print(f"Benchmarking on: {kmz.parent.name}\n")
