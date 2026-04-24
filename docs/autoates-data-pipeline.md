@@ -129,6 +129,25 @@ complete geographic area, so the model is always tested on terrain it has never 
 
 ---
 
+## Dependencies, Testing & CI/CD
+
+The dependencies have unused dependencies, dev dependencies in the primary pool and the CI is incomplete.
+
+Dependencies
+- [ ] Remove outdated deps
+- [ ] Move deps to dev
+
+
+Tests
+- [ ] Extend unit tests
+- [ ] Add E2E pipeline tests
+
+CI (Optional)
+- [ ] Add ruff linting 
+- [ ] Add test coverage dynamic SVG badges to README.md
+
+---
+
 ## Critical Files
 
 | File | Role |
