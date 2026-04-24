@@ -13,6 +13,7 @@ dependencies = [
     "matplotlib>=3.10.8",
     "numpy>=2.0",
     "pandas>=3.0.1",
+    "pydantic>=2.13.3",
     "pyproj>=3.7",
     "pysheds>=0.5",
     "rasterio>=1.5",
