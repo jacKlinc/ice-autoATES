@@ -40,23 +40,29 @@ class AvalancheArea(BaseModel):
     def download_mrdem(self) -> tuple[np.ndarray, Affine]:
         # thin wrapper around ates/dem.py:fetch_dem_mrdem — reuse, don't duplicate
 
+    async def download_mrdem_async(self, executor) -> tuple[np.ndarray, Affine]:
+        # runs download_mrdem in a thread pool so the event loop stays unblocked
+        # rasterio is blocking I/O — it must be wrapped, not awaited directly
+
     def generate_d8_pra(self, dem: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        # fill_pits → flowdir → PRA-weighted accumulation (pysheds)
-        # PRA logic refactored from autoates_v2/PRA/ into ates/pra.py (pure numpy, no file I/O)
-        # returns (d8_exposure, pra_binary)
+        # 1. slope from np.gradient → arctan → degrees
+        # 2. PRA binary: cells where 30° ≤ slope ≤ 60°
+        # 3. fill_pits → D8 flowdir → accumulation weighted by PRA binary
+        # returns (pra_binary, d8_exposure)
 
 
 class AreaDataset(BaseModel):
     areas: list[AvalancheArea]
     out_dir: Path
 
-    def build(self) -> pd.DataFrame:
-        # for each area: download_mrdem → generate_d8_pra → features.extract
-        # → flatten to pixel rows → checkpoint area.parquet → return concatenated DataFrame
+    async def build(self) -> pd.DataFrame:
+        # asyncio.Semaphore caps concurrent S3 requests
+        # asyncio.gather fans out all downloads, then compute runs per-area
+        # checkpoints each area.parquet before concatenating
 
-    def spatial_split(self, n_splits: int = 5) -> Generator:
+    def spatial_split(self, df: pd.DataFrame, n_splits: int = 5) -> Generator[tuple[pd.DataFrame, pd.DataFrame], None, None]:
         # StratifiedGroupKFold(groups=df['area'])
-        # yields (train_df, test_df) — each fold holds out one complete area
+        # yield (train_df, test_df) one fold at a time — avoids materialising all 5 folds at once
 ```
 
 Pydantic gives us: bbox coordinate ordering validation, JSON serialisation (area configs
@@ -64,9 +70,82 @@ can be stored as JSON), and `model_validate()` for loading from existing metadat
 
 ---
 
+## Generator Pattern
+
+`spatial_split` uses `yield` to produce one `(train_df, test_df)` fold at a time:
+
+```python
+def spatial_split(self, df: pd.DataFrame, n_splits: int = 5):
+    cv = StratifiedGroupKFold(n_splits=n_splits)
+    for train_idx, test_idx in cv.split(df, df["ates_class"], groups=df["area"]):
+        yield df.iloc[train_idx], df.iloc[test_idx]
+```
+
+The caller iterates naturally:
+```python
+for train, test in dataset.spatial_split(pixels):
+    model.fit(train[features], train["ates_class"])
+    evaluate(model, test)
+```
+
+**Why a generator here:** each fold is a large DataFrame slice — materialising all five
+at once would triple peak memory. `yield` hands one fold to the caller, which trains and
+evaluates, then garbage-collects before the next fold is produced.
+
+---
+
+## Async Strategy
+
+The bottleneck in `AreaDataset.build()` is network I/O — 177 sequential MRDEM COG range
+requests over HTTP. `asyncio` eliminates that wait by overlapping downloads.
+
+**Why `run_in_executor` and not bare `await`:**
+rasterio's `open()` and `read()` are blocking C calls. Calling them directly inside an
+async function would freeze the event loop for every other coroutine. Wrapping them in a
+`ThreadPoolExecutor` hands the blocking call to a worker thread and yields control back to
+the event loop until the result is ready.
+
+```python
+async def download_mrdem_async(self, executor):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor, self._download_mrdem_sync)
+
+async def build(self) -> pd.DataFrame:
+    sem = asyncio.Semaphore(8)          # cap concurrent S3 connections
+    executor = ThreadPoolExecutor(max_workers=8)
+
+    async def fetch_one(area):
+        async with sem:
+            return area.name, await area.download_mrdem_async(executor)
+
+    downloads = await asyncio.gather(*[fetch_one(a) for a in self.areas])
+
+    # compute (CPU-bound) runs synchronously after each download
+    frames = []
+    for name, (dem, affine) in downloads:
+        pra, exposure = area.generate_d8_pra(dem)
+        frames.append(features.extract(dem, pra, exposure, affine, name))
+    return pd.concat(frames)
+```
+
+**Key concepts this introduces:**
+| Concept | Where it appears |
+|---------|-----------------|
+| `async def` / `await` | `download_mrdem_async`, `build` |
+| `asyncio.gather` | fan-out of 177 downloads |
+| `asyncio.Semaphore` | cap concurrent S3 connections to ~8 |
+| `ThreadPoolExecutor` | wrap blocking rasterio calls |
+| `run_in_executor` | bridge between async and blocking code |
+
+CPU-bound work (numpy gradient, pysheds D8) stays synchronous — `asyncio` only helps
+with I/O-bound waiting. If compute becomes the bottleneck, swap `ThreadPoolExecutor` for
+`ProcessPoolExecutor` to get true parallelism across cores.
+
+---
+
 ## System Architecture — Zoomed Out
 
-There are two distinct flows that need to be separated clearly:
+There are two distinct flows:
 
 ### Flow A — Offline Training (runs once, or on demand)
 ```
@@ -81,8 +160,7 @@ There are two distinct flows that need to be separated clearly:
     → writes model.pkl → s3://bucket/models/autoatesv3.pkl
 ```
 
-**Trigger:** Manual (developer runs CDK deploy + start-execution), or a scheduled
-EventBridge rule (e.g. nightly rebuild when new KMZ zones are added).
+**Trigger:** Manual or scheduled EventBridge rule.
 Retraining does **not** happen inside Lambda — the model is a static artefact on S3.
 
 ### Flow B — Online Inference (per user request)
@@ -94,7 +172,6 @@ User submits bbox (Streamlit / API Gateway)
 → Streamlit renders result on map
 ```
 
-**Trigger:** Direct Lambda invoke from the Streamlit app, or API Gateway POST.
 The same `AvalancheArea` methods power both flows — the class is the shared contract.
 
 ---
@@ -131,12 +208,9 @@ complete geographic area, so the model is always tested on terrain it has never 
 
 ## Dependencies, Testing & CI/CD
 
-The dependencies have unused dependencies, dev dependencies in the primary pool and the CI is incomplete.
-
 Dependencies
 - [ ] Remove outdated deps
 - [ ] Move deps to dev
-
 
 Tests
 - [ ] Extend unit tests
@@ -152,22 +226,21 @@ CI (Optional)
 
 | File | Role |
 |------|------|
-| `ates/area.py` | **New** — BoundingBox + AvalancheArea + AreaDataset (Pydantic) |
-| `ates/pra.py` | **New** — PRA logic refactored from `autoates_v2/PRA/PRA_AutoATES.py` into pure numpy |
+| `ates/area.py` | **New** — BoundingBox + AvalancheArea + AreaDataset (Pydantic + async) |
 | `ates/dem.py` | Existing — `fetch_dem_mrdem` wrapped by `AvalancheArea.download_mrdem` |
 | `ates/areas.py` | Existing — area metadata dicts; `AvalancheArea.model_validate()` should accept same shape |
 | `ates/validate.py` | Existing — `Validator._load_zones()` reused by `AreaDataset` to load KMZ zones |
-| `ates/features.py` | **New** (Week 3) — slope, aspect, TRI, TPI, curvature, D8, forest, PRA extraction |
-| `scripts/build_dataset.py` | Existing — orchestration; will call `AreaDataset.build()` |
-| `infra/` | **New** (Week 5) — CDK stack: S3 + Lambda + Step Functions |
+| `ates/features.py` | **New** — slope, aspect, TRI, TPI, curvature, D8, forest, PRA extraction |
+| `scripts/build_dataset.py` | Existing — orchestration; will call `asyncio.run(AreaDataset.build())` |
+| `infra/` | **New** — CDK stack: S3 + Lambda + Step Functions |
 
 ---
 
 ## Verification
 
-1. `BoundingBox(min_lat=52, min_lon=-117, max_lat=51, max_lon=-116)` raises a Pydantic `ValidationError` (lat ordering check).
+1. `BoundingBox(min_lat=52, min_lon=-117, max_lat=51, max_lon=-116)` raises a Pydantic `ValidationError`.
 2. `AvalancheArea("bow-summit", bbox).download_mrdem()` returns an array with shape > (10, 10) and a valid Affine.
 3. `generate_d8_pra(dem)` returns two arrays matching `dem.shape`, both ≥ 0.
 4. Full pipeline on Bow Summit bbox → `d8_exposure` compared against `cell_counts.tif` via the confusion matrix in `d8-flow.ipynb`.
-5. `AreaDataset.build()` on 3 areas → `pixels.parquet` schema matches plan schema with `area` column present.
-****
+5. `asyncio.run(AreaDataset([bow_summit], out_dir).build())` on 3 areas → `pixels.parquet` schema matches plan schema with `area` column present.
+6. Semaphore test: confirm no more than 8 concurrent rasterio calls fire simultaneously (log timestamps).
