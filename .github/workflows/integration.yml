@@ -1,6 +1,4 @@
-on:
-  push:
-  workflow_call:
+on: push
 
 jobs:
   integration-test:
