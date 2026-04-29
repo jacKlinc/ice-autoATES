@@ -1,8 +1,10 @@
 from pathlib import Path
 import json
 
+from rasterio.crs import CRS
 import pytest
 import numpy as np
+from affine import Affine
 
 from ates.area import BoundaryBox, AvalancheArea, AvalancheDataset
 
@@ -38,7 +40,7 @@ def seymour_dem():
 def test_download_mrdem(seymour_dem):
     dem_wgs84, (bottom, left, top, right) = seymour_dem
 
-    # Simple matrix size check
+    # Simple matrix
     assert dem_wgs84 is not None
     assert dem_wgs84.ndim == 2
     assert dem_wgs84.shape[0] > 0 and dem_wgs84.shape[1] > 0
@@ -46,3 +48,16 @@ def test_download_mrdem(seymour_dem):
     # Check bounds are valid
     assert bottom < top
     assert left < right
+
+
+def test_download_box():
+    area = AvalancheArea(name="mount-seymour", bbox=_SEYMOUR_BBOX)
+    dem, nodata, native_transform, src_crs = area._download_box(CRS.from_epsg(4326))
+
+    # Raw EPSG:3979 array — different shape/CRS to the reprojected WGS84 output
+    assert nodata == -32767.0
+    assert dem.ndim == 2
+    assert np.isfinite(dem).any()
+    assert src_crs.to_epsg() == 3979
+    assert native_transform.a == pytest.approx(30.0)   # 30 m pixel width
+    assert native_transform.e == pytest.approx(-30.0)  # 30 m pixel height (negative = north-up)

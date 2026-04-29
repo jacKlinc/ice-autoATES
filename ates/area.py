@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Tuple, Any
+from typing import List, Optional, Tuple
 
 import numpy as np
 from pydantic import BaseModel, model_validator
@@ -12,7 +12,7 @@ from rasterio.warp import (
     reproject,
     transform_bounds,
 )
-from skimage.measure import find_contours
+from affine import Affine
 
 # pysheds 0.5 calls np.in1d which was removed in NumPy 2.0
 if not hasattr(np, "in1d"):
@@ -59,46 +59,28 @@ class AvalancheArea(BaseModel):
     name: str
     bbox: BoundaryBox
 
-    def download_box(self, wgs84):
+    def _download_box(
+        self, dst_crs: CRS
+    ) -> tuple[np.ndarray, Optional[float], Affine, CRS]:
         min_lat, max_lat, min_lon, max_lon = self.bbox.to_tuple()
-
         with rasterio.open(_MRDEM_DTM_VRT) as src:
             native_bounds = transform_bounds(
-                wgs84, src.crs, min_lon, min_lat, max_lon, max_lat
+                dst_crs, src.crs, min_lon, min_lat, max_lon, max_lat
             )
             window = src.window(*native_bounds)
             dem = src.read(1, window=window).astype(np.float32)
-            nodata = src.nodata
-            native_transform = src.window_transform(window)
-            crs = src.crs
+            return dem, src.nodata, src.window_transform(window), src.crs
 
-        return nodata, dem, native_transform, crs
-
-    def download_mrdem(self) -> Tuple[np.ndarray, np.ndarray]:
-        wgs84 = CRS.from_epsg(4326)
-
-        # nodata, dem, native_transform, crs = self.download_box(wgs84)
-        min_lat, max_lat, min_lon, max_lon = self.bbox.to_tuple()
-
-        with rasterio.open(_MRDEM_DTM_VRT) as src:
-            native_bounds = transform_bounds(
-                wgs84, src.crs, min_lon, min_lat, max_lon, max_lat
-            )
-            window = src.window(*native_bounds)
-            dem = src.read(1, window=window).astype(np.float32)
-            nodata = src.nodata
-            native_transform = src.window_transform(window)
-            crs = src.crs
-
-        # TODO: make transform function
+    @classmethod
+    def _transform(cls, nodata, dem, src_crs, dst_crs, native_transform):
         if nodata is not None:
             dem[dem == nodata] = np.nan
 
         # MRDEM native CRS is EPSG:3979 (Canada Lambert) — reproject to WGS84
         height, width = dem.shape
         dst_transform, dst_width, dst_height = calculate_default_transform(
-            crs,
-            wgs84,
+            src_crs,
+            dst_crs,
             width,
             height,
             left=native_transform.c,
@@ -106,24 +88,33 @@ class AvalancheArea(BaseModel):
             right=native_transform.c + native_transform.a * width,
             top=native_transform.f,
         )
-        dem_wgs84 = np.full((dst_height, dst_width), np.nan, dtype=np.float32)
+        dst_dem = np.full((dst_height, dst_width), np.nan, dtype=np.float32)
         reproject(
             source=dem,
-            destination=dem_wgs84,
+            destination=dst_dem,
             src_transform=native_transform,
-            src_crs=crs,
+            src_crs=src_crs,
             dst_transform=dst_transform,
-            dst_crs=wgs84,
+            dst_crs=dst_crs,
             resampling=Resampling.bilinear,
         )
+        return dst_transform, dst_width, dst_height, native_transform, dst_dem
 
-        # TODO: explain
+    def download_mrdem(self) -> Tuple[np.ndarray, Tuple[float, float, float, float]]:
+        dst_crs = CRS.from_epsg(4326)
+        dem, nodata, native_transform, src_crs = self._download_box(dst_crs)
+
+        dst_transform, dst_width, dst_height, native_transform, dst_dem = (
+            self._transform(nodata, dem, src_crs, dst_crs, native_transform)
+        )
+
+        # Spatial extent of the reprojected output array in WGS84
         left = dst_transform.c
         top = dst_transform.f
         right = left + dst_transform.a * dst_width
         bottom = top + dst_transform.e * dst_height
 
-        return dem_wgs84, (bottom, left, top, right)
+        return dst_dem, (bottom, left, top, right)
 
     def generate_d8_pra(self, dem: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         grid = Grid.from_raster(dem)
