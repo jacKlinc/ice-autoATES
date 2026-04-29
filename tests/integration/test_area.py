@@ -14,12 +14,6 @@ _SEYMOUR_BBOX = BoundaryBox(
 
 _CACHE_DIR = Path("tests/data/seymour")
 
-# TODO delete me
-def test_avalanche_dataset():
-    bb = BoundaryBox(min_lat=2, max_lat=2, min_lon=3, max_lon=4)
-    aa = AvalancheArea(name="Test", bbox=bb)
-    AvalancheDataset(areas=[aa], out_dir=Path(__file__))
-
 
 @pytest.fixture(scope="session")
 def seymour_dem():
@@ -59,5 +53,7 @@ def test_download_box():
     assert dem.ndim == 2
     assert np.isfinite(dem).any()
     assert src_crs.to_epsg() == 3979
-    assert native_transform.a == pytest.approx(30.0)   # 30 m pixel width
-    assert native_transform.e == pytest.approx(-30.0)  # 30 m pixel height (negative = north-up)
+    assert native_transform.a == pytest.approx(30.0)  # 30 m pixel width
+    assert native_transform.e == pytest.approx(
+        -30.0
+    )  # 30 m pixel height (negative = north-up)
