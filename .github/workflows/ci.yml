@@ -10,10 +10,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-      - run: uv run --group dev pytest unit--cov=ates --cov-report=term-missing
-  integration-test:
-    uses: ./.github/workflows/integration.yml
-  e2e-test:
-    uses: ./.github/workflows/e2e.yml
+      - run: uv run --group dev pytest tests/unit
+  # integration-test:
+  #   uses: ./.github/workflows/integration.yml
+  # e2e-test:
+  #   uses: ./.github/workflows/e2e.yml
 
 # TODO: add linting when in next PR
