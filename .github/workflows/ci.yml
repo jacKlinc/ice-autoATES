@@ -10,6 +10,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
+          enable-cache: true
       - run: uv run --group dev pytest tests/unit
 
 # TODO: add linting when in next PR
