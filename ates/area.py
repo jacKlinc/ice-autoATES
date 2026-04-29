@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
+import asyncio
 import numpy as np
 from pydantic import BaseModel, model_validator
 import pandas as pd
@@ -71,6 +72,9 @@ class AvalancheArea(BaseModel):
             dem = src.read(1, window=window).astype(np.float32)
             return dem, src.nodata, src.window_transform(window), src.crs
 
+    async def download_box_a(self, dst_crs: CRS):
+        return await asyncio.to_thread(self._download_box, dst_crs)
+
     @classmethod
     def _transform(cls, nodata, dem, src_crs, dst_crs, native_transform):
         if nodata is not None:
@@ -125,12 +129,12 @@ class AvalancheArea(BaseModel):
 class AvalancheDataset(BaseModel):
     areas: List[AvalancheArea]
     out_dir: Path
+    dst_crs: Any
 
-    def build(self) -> pd.DataFrame:
-        pixels = []
-        for area in self.areas:
-            dem = area.download_mrdem()
-            pra = area.generate_d8_pra(dem)
-            # extract features
-            pixels.append([dem, pra])
-        return pd.DataFrame(pixels)
+    async def _download_dems(self):
+        return await asyncio.gather(
+            *(area.download_box_a(self.dst_crs) for area in self.areas)
+        )
+
+    def build(self):
+        return asyncio.run(self._download_dems())

@@ -14,7 +14,7 @@ _SEYMOUR_BBOX = BoundaryBox(
 
 _CACHE_DIR = Path("tests/data/seymour")
 
-
+# TODO delete me
 def test_avalanche_dataset():
     bb = BoundaryBox(min_lat=2, max_lat=2, min_lon=3, max_lon=4)
     aa = AvalancheArea(name="Test", bbox=bb)
