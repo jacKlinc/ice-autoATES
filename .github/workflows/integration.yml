@@ -8,4 +8,4 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-      - run: uv run --group dev pytest integration--cov=ates --cov-report=term-missing
+      - run: uv run --group dev pytest tests/integration

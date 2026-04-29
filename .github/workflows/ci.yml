@@ -11,9 +11,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv run --group dev pytest tests/unit
-  # integration-test:
-  #   uses: ./.github/workflows/integration.yml
-  # e2e-test:
+  integration-test:
+    uses: ./.github/workflows/integration.yml
+  # test-coverage:
   #   uses: ./.github/workflows/e2e.yml
 
 # TODO: add linting when in next PR
