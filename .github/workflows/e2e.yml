@@ -1,11 +1,13 @@
-on: [ pull_request ]
+on:
+  push:
+  workflow_call:
 
 jobs:
-  e2e-test:
+  test-coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
-      - run: uv run --group dev pytest e2e--cov=ates --cov-report=term-missing
+      - run: uv run --group dev pytest --cov=ates --cov-report=term-missing

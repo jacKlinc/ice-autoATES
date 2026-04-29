@@ -13,7 +13,7 @@ jobs:
       - run: uv run --group dev pytest tests/unit
   integration-test:
     uses: ./.github/workflows/integration.yml
-  # test-coverage:
-  #   uses: ./.github/workflows/e2e.yml
+  test-coverage:
+    uses: ./.github/workflows/e2e.yml
 
 # TODO: add linting when in next PR
