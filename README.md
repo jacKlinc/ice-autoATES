@@ -82,6 +82,17 @@ ice-autoATES/
 
 ---
 
+## Geohashing
+
+Geohashing offers more performant geospatial searching. Even with a rudimentary search algorithm the performance is **3-4x faster than the typical Haversine distance.** The performance gains seem to drop off at bigger dataset sizes due to an unoptimised search algorithm (~O(n)) when it should really be constant time (O(1)).
+
+
+![alt text](notebooks/benchmark.png)
+
+See [notebook](notebooks/geohashing.ipynb) for more.
+
+---
+
 ## References
 
 - Vors et al. (2024). *AutoATES v2.0.* [NHESS](https://nhess.copernicus.org/articles/24/1779/2024/nhess-24-1779-2024.html)

@@ -29,6 +29,7 @@ autoates = ["autoates-v2-0"]
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "pygeohash>=3.2.2",
     "pyinstrument>=5.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
